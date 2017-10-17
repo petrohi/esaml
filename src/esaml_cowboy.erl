@@ -52,7 +52,7 @@ reply_with_logoutresp(SP, IDP, Status, RelayState, Req) ->
 %% @private
 reply_with_req(IDP, SignedXml, RelayState, Req) ->
     Target = esaml_binding:encode_http_redirect(IDP, SignedXml, RelayState),
-    {UA, _} = cowboy_req:header(<<"user-agent">>, Req, <<"">>),
+    UA = cowboy_req:header(<<"user-agent">>, Req, <<"">>),
     IsIE = not (binary:match(UA, <<"MSIE">>) =:= nomatch),
     if IsIE andalso (byte_size(Target) > 2042) ->
         Html = esaml_binding:encode_http_post(IDP, SignedXml, RelayState),
@@ -76,34 +76,19 @@ reply_with_req(IDP, SignedXml, RelayState, Req) ->
         {response, esaml:logoutresp(), RelayState::binary(), Req} |
         {error, Reason :: term(), Req}.
 validate_logout(SP, Req) ->
-    {Method, Req} = cowboy_req:method(Req),
-    case Method of
+    Method = cowboy_req:method(Req),
+    {PostVals, Req3} = case Method of
         <<"POST">> ->
-            % XXX: compat hack, the cowboy_req:continue/1 function was introduced at the
-            %      same time as the API change on body_qs/2, so we can use it to detect
-            %      which argument layout we need to use. this way we can be compat with
-            %      both cowboy <1.0 and 1.0.x.
-            {ok, PostVals, Req2} = case erlang:function_exported(cowboy_req, continue, 1) of
-                true -> cowboy_req:body_qs(Req, [{length, 128000}]);
-                false -> cowboy_req:body_qs(128000, Req)
-            end,
-            SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
-            SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals,
-                proplists:get_value(<<"SAMLRequest">>, PostVals)),
-            RelayState = proplists:get_value(<<"RelayState">>, PostVals, <<>>),
-            validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req2);
+            {ok, PostVals0, Req2} = cowboy_req:read_urlencoded_body(Req),
+            {PostVals0, Req2};
         <<"GET">> ->
-            {SAMLEncoding, Req2} = cowboy_req:qs_val(<<"SAMLEncoding">>, Req),
-            {SAMLResponse, Req2} = case cowboy_req:qs_val(<<"SAMLResponse">>, Req2) of
-                {undefined, Req2} -> cowboy_req:qs_val(<<"SAMLRequest">>, Req2);
-                Other -> Other
-            end,
-            RelayState = case cowboy_req:qs_val(<<"RelayState">>, Req2) of
-                {undefined, Req2} -> <<>>;
-                {B, Req2} -> B
-            end,
-            validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req2)
-    end.
+            {cowboy_req:parse_qs(Req), Req}
+    end,
+    SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
+    SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals,
+        proplists:get_value(<<"SAMLRequest">>, PostVals)),
+    RelayState = proplists:get_value(<<"RelayState">>, PostVals, <<>>),
+    validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req3).
 
 %% @private
 validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req2) ->
@@ -152,22 +137,17 @@ validate_assertion(SP, Req) ->
         {ok, esaml:assertion(), RelayState :: binary(), Req} |
         {error, Reason :: term(), Req}.
 validate_assertion(SP, DuplicateFun, Req) ->
-    % XXX: compat hack, see first version above for explanation
-    {ok, PostVals, Req2} = case erlang:function_exported(cowboy_req, continue, 1) of
-        true -> cowboy_req:body_qs(Req, [{length, 128000}]);
-        false -> cowboy_req:body_qs(128000, Req)
-    end,
+    PostVals = cowboy_req:parse_qs(Req),
     SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
     SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals),
     RelayState = proplists:get_value(<<"RelayState">>, PostVals),
-
     case (catch esaml_binding:decode_response(SAMLEncoding, SAMLResponse)) of
         {'EXIT', Reason} ->
-            {error, {bad_decode, Reason}, Req2};
+            {error, {bad_decode, Reason}, Req};
         Xml ->
             case SP:validate_assertion(Xml, DuplicateFun) of
-                {ok, A} -> {ok, A, RelayState, Req2};
-                {error, E} -> {error, E, Req2}
+                {ok, A} -> {ok, A, RelayState, Req};
+                {error, E} -> {error, E, Req}
             end
     end.
 
