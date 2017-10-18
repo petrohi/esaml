@@ -56,16 +56,16 @@ reply_with_req(IDP, SignedXml, RelayState, Req) ->
     IsIE = not (binary:match(UA, <<"MSIE">>) =:= nomatch),
     if IsIE andalso (byte_size(Target) > 2042) ->
         Html = esaml_binding:encode_http_post(IDP, SignedXml, RelayState),
-        cowboy_req:reply(200, [
-            {<<"Cache-Control">>, <<"no-cache">>},
-            {<<"Pragma">>, <<"no-cache">>}
-        ], Html, Req);
+        cowboy_req:reply(200, #{
+            <<"Cache-Control">> => <<"no-cache">>,
+            <<"Pragma">> => <<"no-cache">>
+        }, Html, Req);
     true ->
-        cowboy_req:reply(302, [
-            {<<"Cache-Control">>, <<"no-cache">>},
-            {<<"Pragma">>, <<"no-cache">>},
-            {<<"Location">>, Target}
-        ], <<"Redirecting...">>, Req)
+        cowboy_req:reply(302, #{
+            <<"Cache-Control">> => <<"no-cache">>,
+            <<"Pragma">> => <<"no-cache">>,
+            <<"Location">> => Target
+        }, <<"Redirecting...">>, Req)
     end.
 
 %% @doc Validate and parse a LogoutRequest or LogoutResponse
@@ -117,7 +117,7 @@ validate_logout(SP, SAMLEncoding, SAMLResponse, RelayState, Req2) ->
 reply_with_metadata(SP, Req) ->
     SignedXml = SP:generate_metadata(),
     Metadata = xmerl:export([SignedXml], xmerl_xml),
-    cowboy_req:reply(200, [{<<"Content-Type">>, <<"text/xml">>}], Metadata, Req).
+    cowboy_req:reply(200, #{<<"Content-Type">> => <<"text/xml">>}, Metadata, Req).
 
 %% @doc Validate and parse an Assertion inside a SAMLResponse
 %%
