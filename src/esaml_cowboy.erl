@@ -137,17 +137,17 @@ validate_assertion(SP, Req) ->
         {ok, esaml:assertion(), RelayState :: binary(), Req} |
         {error, Reason :: term(), Req}.
 validate_assertion(SP, DuplicateFun, Req) ->
-    PostVals = cowboy_req:parse_qs(Req),
+    {ok, PostVals, Req2} = cowboy_req:read_urlencoded_body(Req),
     SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
     SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals),
     RelayState = proplists:get_value(<<"RelayState">>, PostVals),
     case (catch esaml_binding:decode_response(SAMLEncoding, SAMLResponse)) of
         {'EXIT', Reason} ->
-            {error, {bad_decode, Reason}, Req};
+            {error, {bad_decode, Reason}, Req2};
         Xml ->
             case SP:validate_assertion(Xml, DuplicateFun) of
-                {ok, A} -> {ok, A, RelayState, Req};
-                {error, E} -> {error, E, Req}
+                {ok, A} -> {ok, A, RelayState, Req2};
+                {error, E} -> {error, E, Req2}
             end
     end.
 
